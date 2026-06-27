@@ -1,39 +1,93 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { ChefHat, Bookmark, LogOut, User, ChevronDown, RefrigeratorIcon } from "lucide-react";
 import type { Recipe, FridgeItem } from "./data";
-import { SAMPLE_FRIDGE_ITEMS } from "./data";
 import HomePage from "./pages/HomePage";
 import RecipesPage from "./pages/RecipesPage";
 import FavoritesPage from "./pages/FavoritesPage";
 import FridgePage from "./pages/FridgePage";
 import AuthPage from "./pages/AuthPage";
 import RecipeDetail from "./components/RecipeDetail";
-
-type Page = "home" | "recipes" | "favorites" | "fridge" | "auth";
+import {
+  getToken, clearToken, getSavedUser,
+  apiGetFridge, apiAddFridge, apiDeleteFridge,
+  apiGetFavorites, apiAddFavorite, apiDeleteFavorite,
+  mapFridgeItem, mapRecipe,
+} from "./api";
 
 function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
-  
-  const [page, setPage] = useState<Page>("home");
-  const [savedIds, setSavedIds] = useState<number[]>([]);
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
-  const [prevPage, setPrevPage] = useState<Page>("home");
-  const [searchQuery, setSearchQuery] = useState<string[]>([]);
+
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [fridgeItems, setFridgeItems] = useState<FridgeItem[]>(SAMPLE_FRIDGE_ITEMS);
-  const [fridgeSearchIngredients, setFridgeSearchIngredients] = useState<string[] | null>(null);
-  let nextFridgeId = useRef(100);
 
-  const toggleSave = (id: number) =>
-    setSavedIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const [fridgeItems, setFridgeItems] = useState<FridgeItem[]>([]);
+  const [fridgeSearchIngredients, setFridgeSearchIngredients] = useState<string[] | null>(null);
+
+  // recipeId → { favId, recipe }
+  const [favMap, setFavMap] = useState<Record<number, { favId: number; recipe: Recipe }>>({});
+  const savedIds = Object.keys(favMap).map(Number);
+  const savedRecipes = Object.values(favMap).map((f) => f.recipe);
+
+  // 앱 초기화: 저장된 토큰/유저 복구
+  useEffect(() => {
+    const token = getToken();
+    const savedUser = getSavedUser();
+    if (token && savedUser) {
+      setUser(savedUser);
+    }
+  }, []);
+
+  // 로그인 후 냉장고/즐겨찾기 로드
+  useEffect(() => {
+    if (!user) return;
+    apiGetFridge()
+      .then((items) => setFridgeItems(items.map(mapFridgeItem)))
+      .catch(console.error);
+
+    apiGetFavorites()
+      .then((favs) => {
+        const newMap: Record<number, { favId: number; recipe: Recipe }> = {};
+        for (const fav of favs) {
+          if (fav.recipe) {
+            const recipe = mapRecipe(fav.recipe);
+            newMap[recipe.id] = { favId: fav.id, recipe };
+          }
+        }
+        setFavMap(newMap);
+      })
+      .catch(console.error);
+  }, [user]);
+
+  const toggleSave = async (id: number, recipe?: Recipe) => {
+    if (id in favMap) {
+      try {
+        await apiDeleteFavorite(favMap[id].favId);
+        setFavMap((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    } else if (recipe) {
+      try {
+        const result = await apiAddFavorite(String(id));
+        setFavMap((prev) => ({ ...prev, [id]: { favId: result.id, recipe } }));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
 
   const goTo = (path: string) => {
-  setSelectedRecipe(null);
-  navigate(path);
+    setSelectedRecipe(null);
+    navigate(path);
   };
 
   const openRecipe = (recipe: Recipe, query: string[] = []) => {
@@ -41,12 +95,12 @@ function AppInner() {
     setSelectedRecipe(recipe);
   };
 
-  const closeRecipe = () => {
-    setSelectedRecipe(null);
-  };
+  const closeRecipe = () => setSelectedRecipe(null);
 
   const soonOrExpired = fridgeItems.filter((i) => {
-    const days = Math.ceil((new Date(i.expiresAt).getTime() - new Date().setHours(0,0,0,0)) / 86400000);
+    const days = Math.ceil(
+      (new Date(i.expiresAt).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000
+    );
     return days <= 3;
   }).length;
 
@@ -58,17 +112,32 @@ function AppInner() {
   ];
 
   const handleLogin = (name: string, email: string) => {
-  setUser({ name, email });
-  navigate("/");
+    setUser({ name, email });
+    navigate("/");
   };
 
-  const addFridgeItem = (item: Omit<FridgeItem, "id" | "addedAt">) => {
-    const today = new Date().toISOString().split("T")[0];
-    setFridgeItems((p) => [...p, { ...item, id: nextFridgeId.current++, addedAt: today }]);
+  const addFridgeItem = async (item: Omit<FridgeItem, "id" | "addedAt">) => {
+    try {
+      const result = await apiAddFridge({
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        category: item.category,
+        expires_at: item.expiresAt,
+      });
+      setFridgeItems((prev) => [...prev, mapFridgeItem(result)]);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const deleteFridgeItem = (id: number) => {
-    setFridgeItems((p) => p.filter((i) => i.id !== id));
+  const deleteFridgeItem = async (id: number) => {
+    try {
+      await apiDeleteFridge(id);
+      setFridgeItems((prev) => prev.filter((i) => i.id !== id));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleFridgeSearchRecipes = (ingredients: string[]) => {
@@ -77,25 +146,26 @@ function AppInner() {
   };
 
   const handleLogout = () => {
+    clearToken();
     setUser(null);
     setDropdownOpen(false);
     setSelectedRecipe(null);
-    setPage("auth");
+    setFridgeItems([]);
+    setFavMap({});
+    navigate("/");
   };
 
-  // 비로그인 시 또는 auth 페이지 → 항상 AuthPage
-  if (!user || page === "auth") {
+  if (!user) {
     return <AuthPage onLogin={handleLogin} />;
   }
 
-  // Recipe detail takes over the full screen
   if (selectedRecipe) {
     return (
       <RecipeDetail
         recipe={selectedRecipe}
         query={searchQuery}
-        saved={savedIds.includes(selectedRecipe.id)}
-        onSave={() => toggleSave(selectedRecipe.id)}
+        saved={selectedRecipe.id in favMap}
+        onSave={() => toggleSave(selectedRecipe.id, selectedRecipe)}
         onBack={closeRecipe}
       />
     );
@@ -109,7 +179,6 @@ function AppInner() {
       {/* Nav */}
       <nav className="sticky top-0 z-50 bg-white border-b border-border">
         <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
-          {/* Logo */}
           <button onClick={() => goTo("/")} className="flex items-center gap-2">
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <ChefHat className="w-4 h-4 text-white" strokeWidth={2.5} />
@@ -117,7 +186,6 @@ function AppInner() {
             <span className="font-bold text-foreground text-[15px] tracking-tight">냉장고 셰프</span>
           </button>
 
-          {/* Center nav */}
           <div className="hidden sm:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
             {navItems.map(({ key, label, icon, badge }) => (
               <button
@@ -145,9 +213,7 @@ function AppInner() {
             ))}
           </div>
 
-          {/* Right */}
           <div className="flex items-center gap-1">
-            {/* Mobile favorites */}
             <button
               onClick={() => goTo("/favorites")}
               className="sm:hidden relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -160,52 +226,46 @@ function AppInner() {
               )}
             </button>
 
-            {user ? (
-              <div
-                ref={dropdownRef}
-                className="relative"
-                onMouseEnter={() => setDropdownOpen(true)}
-                onMouseLeave={() => setDropdownOpen(false)}
-              >
-                <button className="flex items-center gap-2 text-sm font-semibold text-foreground px-3 py-1.5 rounded-lg hover:bg-muted transition-colors border border-border">
-                  <span className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-                    <User className="w-3.5 h-3.5 text-white" />
-                  </span>
-                  <span className="max-w-[120px] truncate">{user.name}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {dropdownOpen && (
-                  <div className="absolute right-0 top-full pt-1.5 z-50 w-52">
-                    <div className="bg-white border border-border rounded-xl shadow-lg overflow-hidden">
-                      <div className="px-4 py-3 border-b border-border bg-muted/40">
-                        <p className="text-xs font-semibold text-foreground truncate">{user.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                      </div>
-                      <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                      >
-                        <LogOut className="w-4 h-4" />
-                        로그아웃
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={() => goTo("/auth")}
-                className="text-sm font-semibold bg-primary text-white px-4 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
-              >
-                로그인
+            <div
+              ref={dropdownRef}
+              className="relative"
+              onMouseEnter={() => setDropdownOpen(true)}
+              onMouseLeave={() => setDropdownOpen(false)}
+            >
+              <button className="flex items-center gap-2 text-sm font-semibold text-foreground px-3 py-1.5 rounded-lg hover:bg-muted transition-colors border border-border">
+                <span className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+                  <User className="w-3.5 h-3.5 text-white" />
+                </span>
+                <span className="max-w-[120px] truncate">{user.name}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${
+                    dropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
               </button>
-            )}
+
+              {dropdownOpen && (
+                <div className="absolute right-0 top-full pt-1.5 z-50 w-52">
+                  <div className="bg-white border border-border rounded-xl shadow-lg overflow-hidden">
+                    <div className="px-4 py-3 border-b border-border bg-muted/40">
+                      <p className="text-xs font-semibold text-foreground truncate">{user.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      로그아웃
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </nav>
 
-      {/* Page content */}
       <Routes>
         <Route
           path="/"
@@ -213,50 +273,49 @@ function AppInner() {
             <HomePage
               savedIds={savedIds}
               onToggleSave={toggleSave}
-              onSelectRecipe={(r) => openRecipe(r)}
+              onSelectRecipe={(r: Recipe, q?: string[]) => openRecipe(r, q)}
               initialIngredients={fridgeSearchIngredients}
               onClearInitialIngredients={() => setFridgeSearchIngredients(null)}
             />
           }
         />
-
-      <Route
-        path="/recipes"
-        element={
-          <RecipesPage
-            savedIds={savedIds}
-            onToggleSave={toggleSave}
-            onSelectRecipe={(r) => openRecipe(r)}
-          />
-        }
-      />
-
-      <Route
-        path="/favorites"
-        element={
-          <FavoritesPage
-            savedIds={savedIds}
-            onToggleSave={toggleSave}
-            onSelectRecipe={(r) => openRecipe(r)}
-          />
-        }
-      />
-
-      <Route
-        path="/fridge"
-        element={
-          <FridgePage
-            items={fridgeItems}
-            onAdd={addFridgeItem}
-            onDelete={deleteFridgeItem}
-            onSearchRecipes={handleFridgeSearchRecipes}
-          />
-        }
-      />
-</Routes>
+        <Route
+          path="/recipes"
+          element={
+            <RecipesPage
+              savedIds={savedIds}
+              onToggleSave={toggleSave}
+              onSelectRecipe={(r) => openRecipe(r)}
+            />
+          }
+        />
+        <Route
+          path="/favorites"
+          element={
+            <FavoritesPage
+              savedRecipes={savedRecipes}
+              savedIds={savedIds}
+              onToggleSave={toggleSave}
+              onSelectRecipe={(r) => openRecipe(r)}
+            />
+          }
+        />
+        <Route
+          path="/fridge"
+          element={
+            <FridgePage
+              items={fridgeItems}
+              onAdd={addFridgeItem}
+              onDelete={deleteFridgeItem}
+              onSearchRecipes={handleFridgeSearchRecipes}
+            />
+          }
+        />
+      </Routes>
     </div>
   );
 }
+
 export default function App() {
   return (
     <BrowserRouter>

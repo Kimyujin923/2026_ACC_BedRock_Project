@@ -1,21 +1,19 @@
 import { BookmarkX, LayoutGrid, List } from "lucide-react";
 import { useState } from "react";
-import { ALL_RECIPES } from "../data";
 import type { Recipe } from "../data";
 import RecipeCard from "../components/RecipeCard";
 
 interface Props {
+  savedRecipes: Recipe[];
   savedIds: number[];
-  onToggleSave: (id: number) => void;
+  onToggleSave: (id: number, recipe?: Recipe) => void;
   onSelectRecipe: (recipe: Recipe) => void;
 }
 
-export default function FavoritesPage({ savedIds, onToggleSave, onSelectRecipe }: Props) {
+export default function FavoritesPage({ savedRecipes, savedIds, onToggleSave, onSelectRecipe }: Props) {
   const [view, setView] = useState<"grid" | "list">("grid");
 
-  const saved = ALL_RECIPES.filter((r) => savedIds.includes(r.id));
-
-  if (saved.length === 0) {
+  if (savedRecipes.length === 0) {
     return (
       <div className="max-w-6xl mx-auto px-5 py-8">
         <div className="mb-8">
@@ -35,7 +33,7 @@ export default function FavoritesPage({ savedIds, onToggleSave, onSelectRecipe }
     );
   }
 
-  const byCategory = saved.reduce<Record<string, Recipe[]>>((acc, r) => {
+  const byCategory = savedRecipes.reduce<Record<string, Recipe[]>>((acc, r) => {
     if (!acc[r.category]) acc[r.category] = [];
     acc[r.category].push(r);
     return acc;
@@ -46,7 +44,7 @@ export default function FavoritesPage({ savedIds, onToggleSave, onSelectRecipe }
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground mb-1">즐겨찾기</h1>
-          <p className="text-sm text-muted-foreground">저장된 레시피 <span className="font-semibold text-primary">{saved.length}개</span></p>
+          <p className="text-sm text-muted-foreground">저장된 레시피 <span className="font-semibold text-primary">{savedRecipes.length}개</span></p>
         </div>
         <div className="flex border border-border rounded-xl overflow-hidden">
           <button onClick={() => setView("grid")} className={`p-2.5 transition-colors ${view === "grid" ? "bg-primary text-white" : "bg-white text-muted-foreground hover:bg-muted"}`}>
@@ -68,8 +66,10 @@ export default function FavoritesPage({ savedIds, onToggleSave, onSelectRecipe }
             <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-3"}>
               {recipes.map((r) => (
                 <RecipeCard
-                  key={r.id} recipe={r} query={[]} saved={true}
-                  onSave={() => onToggleSave(r.id)} view={view} onClick={() => onSelectRecipe(r)}
+                  key={r.id} recipe={r} query={[]}
+                  saved={savedIds.includes(r.id)}
+                  onSave={() => onToggleSave(r.id, r)}
+                  view={view} onClick={() => onSelectRecipe(r)}
                 />
               ))}
             </div>

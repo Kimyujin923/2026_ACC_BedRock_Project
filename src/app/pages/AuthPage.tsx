@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { ChefHat, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { ChefHat, Eye, EyeOff } from "lucide-react";
+import { apiLogin, apiRegister } from "../api";
 
-type Mode = "login" | "signup" | "done";
+type Mode = "login" | "signup";
 
 interface Props {
   onLogin: (name: string, email: string) => void;
@@ -15,7 +16,6 @@ function InputField({
 }) {
   const [show, setShow] = useState(false);
   const isPassword = type === "password";
-
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-semibold text-foreground">{label}</label>
@@ -26,7 +26,9 @@ function InputField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className={`w-full px-4 py-2.5 text-sm border rounded-xl bg-white outline-none transition-all ${
-            error ? "border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100" : "border-border focus:border-primary focus:ring-2 focus:ring-primary/10"
+            error
+              ? "border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              : "border-border focus:border-primary focus:ring-2 focus:ring-primary/10"
           }`}
         />
         {isPassword && (
@@ -56,7 +58,6 @@ function PasswordStrength({ password }: { password: string }) {
   const score = checks.filter((c) => c.ok).length;
   const colors = ["bg-red-400", "bg-orange-400", "bg-yellow-400", "bg-primary"];
   const labels = ["취약", "보통", "양호", "강함"];
-
   return (
     <div className="mt-2 space-y-2">
       <div className="flex gap-1">
@@ -85,13 +86,13 @@ function PasswordStrength({ password }: { password: string }) {
 
 export default function AuthPage({ onLogin }: Props) {
   const [mode, setMode] = useState<Mode>("login");
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState("");
 
-  // Login fields
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPw, setLoginPw] = useState("");
   const [loginErrors, setLoginErrors] = useState<Record<string, string>>({});
 
-  // Signup fields
   const [signupName, setSignupName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPw, setSignupPw] = useState("");
@@ -121,47 +122,40 @@ export default function AuthPage({ onLogin }: Props) {
     return Object.keys(errs).length === 0;
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validateLogin()) {
-      setMode("done");
-      onLogin(loginEmail.split("@")[0], loginEmail);
+    if (!validateLogin()) return;
+    setLoading(true);
+    setApiError("");
+    try {
+      const { name, email } = await apiLogin(loginEmail, loginPw);
+      onLogin(name, email);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "로그인에 실패했어요");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validateSignup()) {
-      setMode("done");
-      onLogin(signupName, signupEmail);
+    if (!validateSignup()) return;
+    setLoading(true);
+    setApiError("");
+    try {
+      const { name, email } = await apiRegister(signupName, signupEmail, signupPw);
+      onLogin(name, email);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "회원가입에 실패했어요");
+    } finally {
+      setLoading(false);
     }
   };
-
-  if (mode === "done") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-5">
-        <div className="w-full max-w-sm text-center">
-          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-5">
-            <CheckCircle2 className="w-8 h-8 text-primary" />
-          </div>
-          <h2 className="text-xl font-bold text-foreground mb-2">환영해요! 👋</h2>
-          <p className="text-sm text-muted-foreground mb-6">냉장고 셰프에 성공적으로 로그인되었어요.</p>
-          <button
-            onClick={onBack}
-            className="w-full bg-primary text-white py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors"
-          >
-            메인으로 이동
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Nav */}
       <nav className="bg-white border-b border-border">
-        <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-5 h-14 flex items-center">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <ChefHat className="w-4 h-4 text-white" strokeWidth={2.5} />
@@ -173,7 +167,6 @@ export default function AuthPage({ onLogin }: Props) {
 
       <div className="flex-1 flex items-center justify-center px-5 py-12">
         <div className="w-full max-w-sm">
-          {/* Logo */}
           <div className="text-center mb-8">
             <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-3">
               <ChefHat className="w-6 h-6 text-white" strokeWidth={2.5} />
@@ -186,12 +179,11 @@ export default function AuthPage({ onLogin }: Props) {
             </p>
           </div>
 
-          {/* Tab */}
           <div className="flex bg-muted rounded-xl p-1 mb-6">
             {(["login", "signup"] as const).map((m) => (
               <button
                 key={m}
-                onClick={() => setMode(m)}
+                onClick={() => { setMode(m); setApiError(""); }}
                 className={`flex-1 text-sm font-semibold py-2 rounded-lg transition-all ${
                   mode === m ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -201,7 +193,12 @@ export default function AuthPage({ onLogin }: Props) {
             ))}
           </div>
 
-          {/* Login form */}
+          {apiError && (
+            <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+              {apiError}
+            </div>
+          )}
+
           {mode === "login" && (
             <form onSubmit={handleLogin} className="space-y-4">
               <InputField
@@ -212,32 +209,23 @@ export default function AuthPage({ onLogin }: Props) {
                 label="비밀번호" type="password" placeholder="비밀번호를 입력하세요"
                 value={loginPw} onChange={setLoginPw} error={loginErrors.pw}
               />
-
-              <div className="flex items-center justify-between text-xs">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" className="accent-primary w-3.5 h-3.5" />
-                  <span className="text-muted-foreground">로그인 상태 유지</span>
-                </label>
-                <button type="button" className="text-primary hover:underline">비밀번호 찾기</button>
-              </div>
-
               <button
                 type="submit"
-                className="w-full bg-primary text-white py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors mt-2"
+                disabled={loading}
+                className="w-full bg-primary text-white py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
                 로그인
               </button>
-
               <p className="text-center text-xs text-muted-foreground pt-2">
                 계정이 없으신가요?{" "}
-                <button type="button" onClick={() => setMode("signup")} className="text-primary font-semibold hover:underline">
+                <button type="button" onClick={() => { setMode("signup"); setApiError(""); }} className="text-primary font-semibold hover:underline">
                   회원가입
                 </button>
               </p>
             </form>
           )}
 
-          {/* Signup form */}
           {mode === "signup" && (
             <form onSubmit={handleSignup} className="space-y-4">
               <InputField
@@ -260,7 +248,6 @@ export default function AuthPage({ onLogin }: Props) {
                 value={signupPwConfirm} onChange={setSignupPwConfirm} error={signupErrors.pwConfirm}
                 hint={signupPwConfirm && signupPw === signupPwConfirm ? "✓ 비밀번호가 일치해요" : undefined}
               />
-
               <div>
                 <label className="flex items-start gap-2.5 cursor-pointer select-none">
                   <input
@@ -270,23 +257,23 @@ export default function AuthPage({ onLogin }: Props) {
                     className="accent-primary w-4 h-4 mt-0.5 shrink-0"
                   />
                   <span className="text-sm text-muted-foreground leading-relaxed">
-                    <span className="text-primary font-semibold cursor-pointer hover:underline">이용약관</span> 및{" "}
-                    <span className="text-primary font-semibold cursor-pointer hover:underline">개인정보처리방침</span>에 동의합니다
+                    <span className="text-primary font-semibold">이용약관</span> 및{" "}
+                    <span className="text-primary font-semibold">개인정보처리방침</span>에 동의합니다
                   </span>
                 </label>
                 {signupErrors.agree && <p className="text-xs text-red-500 mt-1 ml-6">{signupErrors.agree}</p>}
               </div>
-
               <button
                 type="submit"
-                className="w-full bg-primary text-white py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors mt-2"
+                disabled={loading}
+                className="w-full bg-primary text-white py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
                 회원가입
               </button>
-
               <p className="text-center text-xs text-muted-foreground pt-2">
                 이미 계정이 있으신가요?{" "}
-                <button type="button" onClick={() => setMode("login")} className="text-primary font-semibold hover:underline">
+                <button type="button" onClick={() => { setMode("login"); setApiError(""); }} className="text-primary font-semibold hover:underline">
                   로그인
                 </button>
               </p>

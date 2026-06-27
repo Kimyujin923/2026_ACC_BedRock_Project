@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, LayoutGrid, List, SlidersHorizontal, X } from "lucide-react";
-import { ALL_RECIPES, CATEGORIES, difficultyColor } from "../data";
+import { CATEGORIES, difficultyColor } from "../data";
 import type { Recipe, Difficulty } from "../data";
 import RecipeCard from "../components/RecipeCard";
+import { apiGetRecipes, mapRecipe } from "../api";
 
 const DIFFICULTY_OPTIONS: Difficulty[] = ["쉬움", "보통", "어려움"];
 const SORT_OPTIONS = [
@@ -14,11 +15,14 @@ const SORT_OPTIONS = [
 
 interface Props {
   savedIds: number[];
-  onToggleSave: (id: number) => void;
+  onToggleSave: (id: number, recipe?: Recipe) => void;
   onSelectRecipe: (recipe: Recipe) => void;
 }
 
 export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: Props) {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("전체");
   const [difficulty, setDifficulty] = useState<Difficulty | "전체">("전체");
@@ -27,12 +31,19 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
   const [caloriesMax, setCaloriesMax] = useState(600);
   const [showFilter, setShowFilter] = useState(false);
 
-  const filtered = ALL_RECIPES
+  useEffect(() => {
+    apiGetRecipes()
+      .then((data) => setRecipes(data.map((r) => mapRecipe(r))))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = recipes
     .filter((r) => {
-      if (search && !r.name.includes(search) && !r.matchedIngredients.some((i) => i.includes(search))) return false;
+      if (search && !r.name.includes(search)) return false;
       if (category !== "전체" && r.category !== category) return false;
       if (difficulty !== "전체" && r.difficulty !== difficulty) return false;
-      if (r.calories > caloriesMax) return false;
+      if (r.calories > 0 && r.calories > caloriesMax) return false;
       return true;
     })
     .sort((a, b) => {
@@ -45,7 +56,7 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
       return 0;
     });
 
-  const hasFilters = category !== "전체" || difficulty !== "전체" || caloriesMax < 600 || search;
+  const hasFilters = category !== "전체" || difficulty !== "전체" || caloriesMax < 600 || !!search;
 
   const clearFilters = () => {
     setSearch("");
@@ -56,13 +67,13 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
 
   return (
     <div className="max-w-6xl mx-auto px-5 py-8">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground mb-1">레시피 탐색</h1>
-        <p className="text-sm text-muted-foreground">총 {ALL_RECIPES.length}가지 레시피가 준비되어 있어요</p>
+        <p className="text-sm text-muted-foreground">
+          총 {loading ? "..." : recipes.length}가지 레시피가 준비되어 있어요
+        </p>
       </div>
 
-      {/* Search + toolbar */}
       <div className="flex gap-3 mb-5 flex-wrap">
         <div className="flex-1 min-w-52 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -70,7 +81,7 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="레시피 이름 또는 재료로 검색..."
+            placeholder="레시피 이름으로 검색..."
             className="w-full pl-9 pr-4 py-2.5 text-sm border border-border rounded-xl bg-white outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
           />
           {search && (
@@ -87,13 +98,13 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
           }`}
         >
           <SlidersHorizontal className="w-4 h-4" />
-          필터 {hasFilters && !showFilter && <span className="w-1.5 h-1.5 rounded-full bg-white inline-block" />}
+          필터
         </button>
 
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value)}
-          className="text-sm border border-border rounded-xl px-3 py-2.5 bg-white text-muted-foreground outline-none cursor-pointer hover:border-primary/40 transition-colors"
+          className="text-sm border border-border rounded-xl px-3 py-2.5 bg-white text-muted-foreground outline-none cursor-pointer"
         >
           {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
@@ -108,7 +119,6 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
         </div>
       </div>
 
-      {/* Filter panel */}
       {showFilter && (
         <div className="bg-white border border-border rounded-2xl p-5 mb-5 space-y-4">
           <div className="flex items-center justify-between">
@@ -119,7 +129,6 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
               </button>
             )}
           </div>
-
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">카테고리</p>
             <div className="flex flex-wrap gap-2">
@@ -136,7 +145,6 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
               ))}
             </div>
           </div>
-
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">난이도</p>
             <div className="flex gap-2">
@@ -157,7 +165,6 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
               ))}
             </div>
           </div>
-
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
               최대 칼로리 <span className="normal-case font-normal text-foreground ml-1">{caloriesMax}kcal 이하</span>
@@ -174,7 +181,6 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
         </div>
       )}
 
-      {/* Category tabs (quick) */}
       <div className="flex gap-2 mb-5 flex-wrap">
         {CATEGORIES.map((c) => (
           <button
@@ -189,25 +195,31 @@ export default function RecipesPage({ savedIds, onToggleSave, onSelectRecipe }: 
         ))}
       </div>
 
-      {/* Results */}
-      <p className="text-xs text-muted-foreground mb-4">{filtered.length}개의 레시피</p>
-
-      {filtered.length === 0 ? (
-        <div className="text-center py-20 text-muted-foreground">
-          <p className="text-4xl mb-3">🍽️</p>
-          <p className="font-semibold text-foreground mb-1">일치하는 레시피가 없어요</p>
-          <p className="text-sm">검색어나 필터를 변경해 보세요</p>
-          <button onClick={clearFilters} className="mt-4 text-sm text-primary hover:underline">필터 초기화</button>
+      {loading ? (
+        <div className="flex items-center justify-center py-24">
+          <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
         </div>
       ) : (
-        <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-3"}>
-          {filtered.map((r) => (
-            <RecipeCard
-              key={r.id} recipe={r} query={[]} saved={savedIds.includes(r.id)}
-              onSave={() => onToggleSave(r.id)} view={view} onClick={() => onSelectRecipe(r)}
-            />
-          ))}
-        </div>
+        <>
+          <p className="text-xs text-muted-foreground mb-4">{filtered.length}개의 레시피</p>
+          {filtered.length === 0 ? (
+            <div className="text-center py-20 text-muted-foreground">
+              <p className="text-4xl mb-3">🍽️</p>
+              <p className="font-semibold text-foreground mb-1">일치하는 레시피가 없어요</p>
+              <p className="text-sm">검색어나 필터를 변경해 보세요</p>
+              <button onClick={clearFilters} className="mt-4 text-sm text-primary hover:underline">필터 초기화</button>
+            </div>
+          ) : (
+            <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-3"}>
+              {filtered.map((r) => (
+                <RecipeCard
+                  key={r.id} recipe={r} query={[]} saved={savedIds.includes(r.id)}
+                  onSave={() => onToggleSave(r.id, r)} view={view} onClick={() => onSelectRecipe(r)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
