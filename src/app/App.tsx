@@ -77,7 +77,7 @@ function AppInner() {
       }
     } else if (recipe) {
       try {
-        const result = await apiAddFavorite(String(id));
+        const result = await apiAddFavorite(String(id), recipe.name, recipe.imageUrl);
         setFavMap((prev) => ({ ...prev, [id]: { favId: result.id, recipe } }));
       } catch (err) {
         console.error(err);
@@ -123,7 +123,7 @@ function AppInner() {
         quantity: item.quantity,
         unit: item.unit,
         category: item.category,
-        expires_at: item.expiresAt,
+        expiry_date: item.expiresAt,
       });
       setFridgeItems((prev) => [...prev, mapFridgeItem(result)]);
     } catch (err) {

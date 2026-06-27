@@ -152,7 +152,7 @@ export interface ApiFridgeItem {
   quantity: number;
   unit: string;
   category: string;
-  expires_at: string;
+  expiry_date: string;
   added_at: string;
 }
 
@@ -165,7 +165,7 @@ export function apiAddFridge(item: {
   quantity: number;
   unit: string;
   category: string;
-  expires_at: string;
+  expiry_date: string;
 }) {
   return http<ApiFridgeItem>('/fridge', {
     method: 'POST',
@@ -189,10 +189,14 @@ export function apiGetFavorites() {
   return http<ApiFavorite[]>('/favorites');
 }
 
-export function apiAddFavorite(recipeId: string) {
+export function apiAddFavorite(recipeId: string, recipeName: string, recipeImage?: string) {
   return http<ApiFavorite>('/favorites', {
     method: 'POST',
-    body: JSON.stringify({ recipe_id: recipeId }),
+    body: JSON.stringify({
+      recipe_id: recipeId,
+      recipe_name: recipeName,
+      recipe_image: recipeImage ?? '',
+    }),
   });
 }
 
@@ -259,7 +263,7 @@ export function mapFridgeItem(api: ApiFridgeItem): FridgeItem {
     quantity: api.quantity,
     unit: api.unit,
     category: api.category as FridgeCategory,
-    expiresAt: api.expires_at,
+    expiresAt: api.expiry_date,
     addedAt: api.added_at,
   };
 }
